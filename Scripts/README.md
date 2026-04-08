@@ -42,11 +42,11 @@ Este script vai confirmar se sua GPU está sendo detectada corretamente.
 ```
 Angulo/
   superior/
-    pegar_console/          (6 vídeos)
-    ler_etiqueta/           (6 vídeos)
-    girar_berco/            (6 vídeos)
-    montagem_parafusamento/ (6 vídeos)
-    inspecao_visual/        (6 vídeos)
+    pegar_console/          
+    ler_etiqueta/           
+    girar_berco/            
+    montagem_parafusamento/ 
+    inspecao_visual/        
   perspectiva/ (mesma estrutura)
 ```
 > ℹ️ Pastas ausentes são ignoradas automaticamente. Quando o ângulo
