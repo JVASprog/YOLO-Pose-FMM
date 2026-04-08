@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arquitetura — YOLO-Pose + LSTM</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg:     #080c10;
+    --panel:  #0d1117;
+    --border: #1e2d3d;
+    --glow:   #0ea5e9;
+    --glow2:  #22d3ee;
+    --amber:  #f59e0b;
+    --green:  #10b981;
+    --purple: #a78bfa;
+    --red:    #f43f5e;
+    --text:   #e2e8f0;
+    --muted:  #64748b;
+    --dim:    #1e293b;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background-image:
+      linear-gradient(rgba(14,165,233,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(14,165,233,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .page {
+    position:relative; z-index:1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px 32px 80px;
+  }
+
+  /* ── header ── */
+  header {
+    margin-bottom: 52px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .eyebrow {
+    font-size: 10px; letter-spacing:.2em; text-transform:uppercase;
+    color: var(--glow); margin-bottom: 10px;
+  }
+  h1 {
+    font-family:'Syne',sans-serif; font-size:clamp(28px,4vw,46px);
+    font-weight:800; line-height:1.05; color:#fff;
+  }
+  h1 span { color:var(--glow2); }
+  .subtitle { margin-top:12px; font-size:13px; color:var(--muted); }
+  .badge-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  .badge {
+    font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+    padding:4px 10px; border-radius:3px; font-weight:600; border:1px solid;
+  }
+  .badge-blue   { color:var(--glow);   border-color:var(--glow);   background:rgba(14,165,233,.08); }
+  .badge-green  { color:var(--green);  border-color:var(--green);  background:rgba(16,185,129,.08); }
+  .badge-amber  { color:var(--amber);  border-color:var(--amber);  background:rgba(245,158,11,.08); }
+
+  .stats-grid {
+    display:grid; grid-template-columns:repeat(3,1fr); gap:10px; min-width:210px;
+  }
+  .stat {
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:6px; padding:12px 14px; text-align:center;
+  }
+  .stat-val {
+    font-family:'Syne',sans-serif; font-size:22px; font-weight:800; color:#fff; line-height:1;
+  }
+  .stat-val.blue   { color:var(--glow2); }
+  .stat-val.green  { color:var(--green); }
+  .stat-val.amber  { color:var(--amber); }
+  .stat-label { font-size:9px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; margin-top:4px; }
+
+  /* ── section title ── */
+  .section-title {
+    font-family:'Syne',sans-serif; font-size:11px; font-weight:700;
+    color:var(--muted); letter-spacing:.2em; text-transform:uppercase;
+    margin-bottom:20px; display:flex; align-items:center; gap:12px;
+  }
+  .section-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+  /* ── pipeline ── */
+  .pipeline { display:flex; align-items:stretch; gap:0; }
+
+  .connector { display:flex; align-items:center; width:36px; flex-shrink:0; }
+  .connector-line {
+    width:100%; height:2px;
+    background:linear-gradient(90deg, var(--border), var(--glow), var(--border));
+    position:relative; overflow:hidden;
+  }
+  .connector-line::after {
+    content:''; position:absolute; top:0; left:-100%; width:100%; height:100%;
+    background:linear-gradient(90deg,transparent,var(--glow2),transparent);
+    animation:flow 2s linear infinite;
+  }
+  @keyframes flow { to { left:100%; } }
+
+  .stage {
+    flex:1; background:var(--panel); border:1px solid var(--border);
+    border-radius:8px; overflow:hidden; position:relative;
+    transition:border-color .3s, transform .3s; cursor:default;
+  }
+  .stage:hover { border-color:var(--glow); transform:translateY(-3px); }
+  .stage::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+  .stage.s-input::before  { background:var(--glow); }
+  .stage.s-yolo::before   { background:var(--amber); }
+  .stage.s-feat::before   { background:var(--green); }
+  .stage.s-lstm::before   { background:var(--purple); }
+  .stage.s-out::before    { background:var(--red); }
+
+  .stage-head {
+    padding:14px 16px 10px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:10px;
+  }
+  .stage-icon {
+    width:30px; height:30px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;
+  }
+  .s-input .stage-icon { background:rgba(14,165,233,.15); }
+  .s-yolo  .stage-icon { background:rgba(245,158,11,.15); }
+  .s-feat  .stage-icon { background:rgba(16,185,129,.15); }
+  .s-lstm  .stage-icon { background:rgba(167,139,250,.15); }
+  .s-out   .stage-icon { background:rgba(244,63,94,.15); }
+
+  .stage-num  { font-size:9px; letter-spacing:.15em; text-transform:uppercase; color:var(--muted); }
+  .stage-name { font-family:'Syne',sans-serif; font-size:12px; font-weight:700; color:#fff; line-height:1.3; }
+
+  .stage-body { padding:14px 16px; }
+  .kv { display:flex; justify-content:space-between; align-items:center; margin-bottom:7px; }
+  .kv:last-child { margin-bottom:0; }
+  .kv-key { font-size:10px; color:var(--muted); }
+  .kv-val { font-size:11px; font-weight:600; color:var(--text); }
+  .kv-val.blue   { color:var(--glow2); }
+  .kv-val.green  { color:var(--green); }
+  .kv-val.amber  { color:var(--amber); }
+  .kv-val.purple { color:var(--purple); }
+  .kv-val.red    { color:var(--red); }
+  .divider { height:1px; background:var(--border); margin:10px 0; }
+
+  /* lstm mini arch */
+  .lstm-arch {
+    margin-top:8px; background:var(--dim); border:1px solid var(--border);
+    border-radius:5px; padding:10px;
+  }
+  .arch-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .arch-row:last-child { margin-bottom:0; justify-content:flex-end; }
+  .arch-box {
+    flex:1; text-align:center; padding:5px 2px;
+    border-radius:3px; border:1px solid var(--border); font-size:9px; font-weight:600;
+  }
+  .ab-in   { background:rgba(14,165,233,.1);  color:var(--glow2);  border-color:rgba(14,165,233,.3); }
+  .ab-lstm { background:rgba(167,139,250,.1); color:var(--purple); border-color:rgba(167,139,250,.3); }
+  .ab-norm { background:rgba(16,185,129,.1);  color:var(--green);  border-color:rgba(16,185,129,.3); }
+  .ab-drop { background:rgba(245,158,11,.1);  color:var(--amber);  border-color:rgba(245,158,11,.3); }
+  .ab-fc   { background:rgba(244,63,94,.1);   color:var(--red);    border-color:rgba(244,63,94,.3); }
+  .arch-arr { font-size:11px; color:var(--muted); flex-shrink:0; }
+
+  /* ── features grid ── */
+  .features-section { margin-top:44px; }
+  .features-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:8px; }
+  .feat-card {
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:10px 12px; display:flex; align-items:flex-start; gap:8px;
+    transition:border-color .2s;
+  }
+  .feat-card:hover { border-color:var(--green); }
+  .feat-num {
+    font-size:10px; font-weight:700; color:var(--green);
+    background:rgba(16,185,129,.1); border:1px solid rgba(16,185,129,.2);
+    border-radius:3px; padding:2px 5px; flex-shrink:0; margin-top:1px;
+  }
+  .feat-name { font-size:11px; font-weight:600; color:var(--text); }
+  .feat-kp   { font-size:9px; color:var(--muted); margin-top:2px; }
+  .feat-type { font-size:9px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; margin-top:3px; }
+  .feat-type.angle { color:var(--glow); }
+  .feat-type.ratio { color:var(--amber); }
+
+  /* ── windows ── */
+  .windows-section { margin-top:36px; }
+  .windows-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  .win-card {
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:14px 10px; text-align:center; transition:transform .2s;
+  }
+  .win-card:hover { transform:translateY(-2px); }
+  .win-name  { font-size:9px; color:var(--muted); letter-spacing:.04em; margin-bottom:8px; text-transform:uppercase; min-height:24px; }
+  .win-bar-wrap { height:44px; display:flex; align-items:flex-end; justify-content:center; margin-bottom:8px; }
+  .win-bar   { width:26px; border-radius:3px 3px 0 0; }
+  .win-frames { font-family:'Syne',sans-serif; font-size:22px; font-weight:800; color:#fff; }
+  .win-sec   { font-size:9px; color:var(--muted); margin-top:2px; }
+  .win-step  { font-size:9px; color:var(--muted); margin-top:4px; }
+  .win-step span { font-weight:700; color:var(--amber); }
+
+  /* ── flow ── */
+  .flow-section { margin-top:36px; }
+  .flow-grid {
+    display:grid; grid-template-columns:1fr 24px 1fr 24px 1fr;
+    align-items:center; gap:0;
+  }
+  .flow-card {
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:6px; padding:16px;
+  }
+  .flow-title { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--glow); font-weight:600; margin-bottom:10px; }
+  .flow-code  { font-size:10px; color:var(--text); line-height:1.8; }
+  .c-kw  { color:var(--purple); }
+  .c-fn  { color:var(--glow2); }
+  .c-num { color:var(--amber); }
+  .c-cm  { color:var(--muted); }
+  .flow-arrow { text-align:center; font-size:18px; color:var(--glow); }
+
+  /* ── footer ── */
+  footer {
+    margin-top:56px; padding-top:20px;
+    border-top:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:10px; color:var(--muted); letter-spacing:.08em;
+  }
+  .pulse { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--green); margin-right:6px; position:relative; top:1px; }
+  .pulse::after { content:''; position:absolute; inset:-3px; border-radius:50%; border:1px solid var(--green); animation:pulse 2s ease-out infinite; }
+  @keyframes pulse { 0%{transform:scale(1);opacity:.8} 100%{transform:scale(2.5);opacity:0} }
+
+  .reveal { opacity:0; transform:translateY(18px); transition:opacity .55s ease, transform .55s ease; }
+  .reveal.visible { opacity:1; transform:none; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="reveal">
+    <div>
+      <div class="eyebrow">Arquitetura do Sistema · Versão 4.0</div>
+      <h1>YOLO-Pose<br><span>+ LSTM</span></h1>
+      <div class="subtitle">Reconhecimento de atividades industriais em tempo real</div>
+      <div class="badge-row">
+        <span class="badge badge-blue">YOLOv8m-pose</span>
+        <span class="badge badge-green">13 features invariantes</span>
+        <span class="badge badge-amber">5 atividades</span>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat"><div class="stat-val blue">13</div><div class="stat-label">features</div></div>
+      <div class="stat"><div class="stat-val green">5</div><div class="stat-label">classes</div></div>
+      <div class="stat"><div class="stat-val amber">40</div><div class="stat-label">janela máx</div></div>
+      <div class="stat"><div class="stat-val">32</div><div class="stat-label">hidden</div></div>
+      <div class="stat"><div class="stat-val">1</div><div class="stat-label">camada</div></div>
+      <div class="stat"><div class="stat-val">0.5</div><div class="stat-label">dropout</div></div>
+    </div>
+  </header>
+
+  <div class="section-title reveal">Pipeline de Inferência</div>
+
+  <div class="pipeline reveal">
+
+    <div class="stage s-input">
+      <div class="stage-head">
+        <div class="stage-icon">🎥</div>
+        <div><div class="stage-num">01</div><div class="stage-name">Entrada de Vídeo</div></div>
+      </div>
+      <div class="stage-body">
+        <div class="kv"><span class="kv-key">fonte</span><span class="kv-val blue">webcam / mp4</span></div>
+        <div class="kv"><span class="kv-key">resolução</span><span class="kv-val">640×480+</span></div>
+        <div class="divider"></div>
+        <div class="kv"><span class="kv-key">conf_pose</span><span class="kv-val amber">0.3</span></div>
+        <div class="kv"><span class="kv-key">vídeo max</span><span class="kv-val">1280×720</span></div>
+      </div>
+    </div>
+
+    <div class="connector"><div class="connector-line"></div></div>
+
+    <div class="stage s-yolo">
+      <div class="stage-head">
+        <div class="stage-icon">🦾</div>
+        <div><div class="stage-num">02</div><div class="stage-name">YOLO-Pose YOLOv8m</div></div>
+      </div>
+      <div class="stage-body">
+        <div class="kv"><span class="kv-key">keypoints</span><span class="kv-val amber">17 COCO</span></div>
+        <div class="kv"><span class="kv-key">precisão</span><span class="kv-val">FP16 GPU</span></div>
+        <div class="divider"></div>
+        <div class="kv"><span class="kv-key">kpt_radius</span><span class="kv-val">6</span></div>
+        <div class="kv"><span class="kv-key">line_width</span><span class="kv-val">3</span></div>
+        <div class="kv"><span class="kv-key">seleção</span><span class="kv-val">argmax(conf)</span></div>
+      </div>
+    </div>
+
+    <div class="connector"><div class="connector-line"></div></div>
+
+    <div class="stage s-feat">
+      <div class="stage-head">
+        <div class="stage-icon">📐</div>
+        <div><div class="stage-num">03</div><div class="stage-name">Extração Geométrica</div></div>
+      </div>
+      <div class="stage-body">
+        <div class="kv"><span class="kv-key">ângulos</span><span class="kv-val green">10</span></div>
+        <div class="kv"><span class="kv-key">proporções</span><span class="kv-val green">3</span></div>
+        <div class="kv"><span class="kv-key">total</span><span class="kv-val green">13 features</span></div>
+        <div class="divider"></div>
+        <div class="kv"><span class="kv-key">régua base</span><span class="kv-val">dist. ombros</span></div>
+        <div class="kv"><span class="kv-key">invariante</span><span class="kv-val">pos. + escala</span></div>
+        <div class="kv"><span class="kv-key">norm.</span><span class="kv-val">StandardScaler</span></div>
+      </div>
+    </div>
+
+    <div class="connector"><div class="connector-line"></div></div>
+
+    <div class="stage s-lstm">
+      <div class="stage-head">
+        <div class="stage-icon">🧠</div>
+        <div><div class="stage-num">04</div><div class="stage-name">LSTM Classifier</div></div>
+      </div>
+      <div class="stage-body">
+        <div class="kv"><span class="kv-key">input</span><span class="kv-val purple">(B, T, 13)</span></div>
+        <div class="kv"><span class="kv-key">hidden / layers</span><span class="kv-val purple">32 / 1</span></div>
+        <div class="lstm-arch">
+          <div class="arch-row">
+            <div class="arch-box ab-in">Input (13)</div>
+            <div class="arch-arr">→</div>
+            <div class="arch-box ab-lstm">LSTM h=32</div>
+            <div class="arch-arr">→</div>
+            <div class="arch-box ab-norm">LayerNorm</div>
+          </div>
+          <div class="arch-row">
+            <div class="arch-box ab-drop" style="max-width:90px;">Dropout 0.5</div>
+            <div class="arch-arr">→</div>
+            <div class="arch-box ab-fc">FC 32→5</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector"><div class="connector-line"></div></div>
+
+    <div class="stage s-out">
+      <div class="stage-head">
+        <div class="stage-icon">📊</div>
+        <div><div class="stage-num">05</div><div class="stage-name">Saída & Registo</div></div>
+      </div>
+      <div class="stage-body">
+        <div class="kv"><span class="kv-key">buffer vot.</span><span class="kv-val red">8 frames</span></div>
+        <div class="kv"><span class="kv-key">conf. mín.</span><span class="kv-val red">0.6</span></div>
+        <div class="divider"></div>
+        <div class="kv"><span class="kv-key">overlay</span><span class="kv-val">persistente</span></div>
+        <div class="kv"><span class="kv-key">base de dados</span><span class="kv-val">PostgreSQL</span></div>
+        <div class="kv"><span class="kv-key">min. sessão</span><span class="kv-val">2.0s</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURES -->
+  <div class="features-section">
+    <div class="section-title reveal">13 Features Geométricas Invariantes</div>
+    <div class="features-grid reveal" id="featGrid"></div>
+  </div>
+
+  <!-- WINDOWS -->
+  <div class="windows-section">
+    <div class="section-title reveal">Janelas Temporais por Classe</div>
+    <div class="windows-grid reveal" id="winGrid"></div>
+  </div>
+
+  <!-- FLOW -->
+  <div class="flow-section">
+    <div class="section-title reveal">Fluxo de Dados por Frame</div>
+    <div class="flow-grid reveal">
+      <div class="flow-card">
+        <div class="flow-title">Extração → Normalização</div>
+        <div class="flow-code">
+          feats = <span class="c-fn">extrair_features</span>(kp, bb)<br>
+          <span class="c-cm"># 13 valores geométricos</span><br><br>
+          feats_norm = scaler.<span class="c-fn">transform</span>([feats])<br>
+          <span class="c-cm"># StandardScaler(μ=0, σ=1)</span><br><br>
+          filas.<span class="c-fn">adicionar</span>(feats_norm)<br>
+          <span class="c-cm"># → todas as deques por classe</span>
+        </div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-card">
+        <div class="flow-title">FilasPorClasse → Batch</div>
+        <div class="flow-code">
+          <span class="c-kw">for</span> a <span class="c-kw">in</span> prontas:<br>
+          &nbsp;&nbsp;seq = filas.<span class="c-fn">seq_padded</span>(a)<br>
+          &nbsp;&nbsp;<span class="c-cm"># (janela_a, 13) + zeros</span><br><br>
+          batch = tensor(seqs)<br>
+          <span class="c-cm"># (N_prontas, 40, 13)</span><br>
+          lens = [<span class="c-num">12</span>,<span class="c-num">9</span>,<span class="c-num">12</span>,<span class="c-num">40</span>,<span class="c-num">12</span>]
+        </div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-card">
+        <div class="flow-title">LSTM → Autoconfiança</div>
+        <div class="flow-code">
+          logits = <span class="c-fn">lstm</span>(batch, lens)<br>
+          <span class="c-cm"># packed sequences (GPU)</span><br><br>
+          probas = <span class="c-fn">softmax</span>(logits)<br>
+          <span class="c-cm"># shape (N, 5)</span><br><br>
+          scores = {a: probas[i, <span class="c-fn">idx</span>(a)]}<br>
+          <span class="c-cm"># prob. da própria classe</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="reveal">
+    <span><span class="pulse"></span>YOLO-Pose + LSTM · v4.0 · Inferência Dinâmica</span>
+    <span>5 atividades industriais · Tempo real · GPU FP16</span>
+  </footer>
+
+</div>
+
+<script>
+const features = [
+  {n:"01",name:"Cotovelo Esquerdo",     kp:"kp[5]→kp[7]→kp[9]",     type:"angle"},
+  {n:"02",name:"Cotovelo Direito",      kp:"kp[6]→kp[8]→kp[10]",    type:"angle"},
+  {n:"03",name:"Ombro Esq. (Axila)",   kp:"kp[11]→kp[5]→kp[7]",    type:"angle"},
+  {n:"04",name:"Ombro Dir. (Axila)",   kp:"kp[12]→kp[6]→kp[8]",    type:"angle"},
+  {n:"05",name:"Pescoço → Ombro Esq", kp:"kp[0]→kp[5]→kp[7]",     type:"angle"},
+  {n:"06",name:"Pescoço → Ombro Dir", kp:"kp[0]→kp[6]→kp[8]",     type:"angle"},
+  {n:"07",name:"Anca Esquerda",        kp:"kp[5]→kp[11]→kp[13]",   type:"angle"},
+  {n:"08",name:"Anca Direita",         kp:"kp[6]→kp[12]→kp[14]",   type:"angle"},
+  {n:"09",name:"Joelho Esquerdo",      kp:"kp[11]→kp[13]→kp[15]",  type:"angle"},
+  {n:"10",name:"Joelho Direito",       kp:"kp[12]→kp[14]→kp[16]",  type:"angle"},
+  {n:"11",name:"Dist. entre Mãos",    kp:"dist(kp[9],kp[10])/ombros",type:"ratio"},
+  {n:"12",name:"Mão Esq → Rosto",    kp:"dist(kp[9],kp[0])/ombros", type:"ratio"},
+  {n:"13",name:"Mão Dir → Rosto",    kp:"dist(kp[10],kp[0])/ombros",type:"ratio"},
+];
+
+const windows = [
+  {name:"pegar_console",         frames:12, step:4,  color:"#0ea5e9"},
+  {name:"ler_etiqueta",          frames:9,  step:1,  color:"#10b981"},
+  {name:"girar_berco",           frames:12, step:1,  color:"#a78bfa"},
+  {name:"montagem_paraf.",       frames:40, step:20, color:"#f59e0b"},
+  {name:"inspecao_visual",       frames:12, step:1,  color:"#f43f5e"},
+];
+
+document.getElementById('featGrid').innerHTML = features.map(f => `
+  <div class="feat-card">
+    <div class="feat-num">${f.n}</div>
+    <div>
+      <div class="feat-name">${f.name}</div>
+      <div class="feat-kp">${f.kp}</div>
+      <div class="feat-type ${f.type}">${f.type === 'angle' ? 'ângulo °' : 'proporção'}</div>
+    </div>
+  </div>`).join('');
+
+document.getElementById('winGrid').innerHTML = windows.map(w => {
+  const barH = Math.max(10, Math.round((w.frames / 40) * 44));
+  return `
+  <div class="win-card" style="border-color:${w.color}30">
+    <div class="win-name">${w.name}</div>
+    <div class="win-bar-wrap">
+      <div class="win-bar" style="height:${barH}px;background:${w.color}25;border:1px solid ${w.color}70;"></div>
+    </div>
+    <div class="win-frames" style="color:${w.color}">${w.frames}</div>
+    <div class="win-sec">${(w.frames/5).toFixed(1)}s a 5fps</div>
+    <div class="win-step">passo <span>${w.step}</span></div>
+  </div>`;
+}).join('');
+
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold:0.08 });
+document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+</script>
+</body>
+</html>

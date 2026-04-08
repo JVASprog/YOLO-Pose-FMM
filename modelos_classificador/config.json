@@ -1,0 +1,32 @@
+{
+  "input_size": 13,
+  "hidden_size": 32,
+  "num_layers": 1,
+  "dropout": 0.5,
+  "num_classes": 5,
+  "atividades": [
+    "girar_berco",
+    "inspecao_visual",
+    "ler_etiqueta",
+    "montagem_parafusamento",
+    "pegar_console"
+  ],
+  "janela_por_classe": {
+    "pegar_console": 12,
+    "ler_etiqueta": 9,
+    "girar_berco": 12,
+    "montagem_parafusamento": 40,
+    "inspecao_visual": 12
+  },
+  "janela_max": 40,
+  "passo_por_classe": {
+    "pegar_console": 4,
+    "ler_etiqueta": 1,
+    "girar_berco": 4,
+    "montagem_parafusamento": 20,
+    "inspecao_visual": 4
+  },
+  "feature_mode": "geometrico",
+  "padding_mode": "post",
+  "enforce_sorted": false
+}

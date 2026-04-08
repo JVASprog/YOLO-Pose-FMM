@@ -1,0 +1,12 @@
+venv/
+__pycache__
+dataset_frames/
+Angulo/
+dataset_yolo/
+1_extrair_e_split_v0.py
+5_inferencia_withsaveAndCam_v1.py
+Relatório_técnico_v2.docx
+runs/pose/treino_pose/v1/weights/epoch0.pt
+runs/pose/treino_pose/v1/weights/epoch10.pt
+runs/pose/treino_pose/v1/weights/epoch20.pt
+runs/pose/treino_pose/v1/weights/last.pt
