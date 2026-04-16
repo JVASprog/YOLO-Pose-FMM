@@ -59,10 +59,6 @@ except ImportError:
     print("⚠️  psycopg2 não instalado. Execute: pip install psycopg2-binary")
     POSTGRES_OK = False
 
-
-# ──────────────────────────────────────────────────────────────
-# LISTAGEM DE CÂMERAS DISPONÍVEIS
-# ──────────────────────────────────────────────────────────────
 def listar_cameras(max_idx=9):
     """
     Testa os índices 0..max_idx e imprime as câmeras que respondem.
@@ -98,23 +94,18 @@ def listar_cameras(max_idx=9):
         print(f"      Exemplo: python 5_inferencia.py --camera {encontradas[-1]}")
     print()
 
-
-# ──────────────────────────────────────────────────────────────
-# CAMINHOS DOS ARQUIVOS
-# ──────────────────────────────────────────────────────────────
 MODELO_POSE   = "runs/pose/treino_pose/v1/weights/best.pt"
 MODELO_BASE   = "yolov8m-pose.pt"
 LSTM_WEIGHTS  = "modelos_classificador/lstm_model.pt"
 LABEL_ENCODER = "modelos_classificador/label_encoder.pkl"
 SCALER        = "modelos_classificador/scaler.pkl"
-CONFIG_JSON   = "modelos_classificador/config.json"   # opcional
+CONFIG_JSON   = "modelos_classificador/config.json"  
 
-# Resolução do vídeo salvo (--salvar)
 SAIDA_LARGURA = 1920
 SAIDA_ALTURA  = 1080
-SAIDA_FPS     = 30          # fps fixo no ficheiro de saída
+SAIDA_FPS     = 30          
 
-CONF_POSE           = 0.3   # limiar baixo — detecta mesmo em poses parciais
+CONF_POSE           = 0.3  
 CONF_CLASSIFICADOR  = 0.6
 BUFFER_PRED         = 8
 TEMPO_MINIMO_SALVAR = 2.0
@@ -145,17 +136,7 @@ CORES = {
     "demonstracao":           (180, 180, 180),
 }
 
-
-
-# ──────────────────────────────────────────────────────────────
-# UPSCALE PARA 1080p COM LETTERBOX
-# ──────────────────────────────────────────────────────────────
 def frame_para_1080p(frame):
-    """
-    Redimensiona o frame para 1920×1080 preservando a proporção original.
-    O espaço restante é preenchido com preto (letterbox).
-    Usado exclusivamente no modo --salvar.
-    """
     h, w    = frame.shape[:2]
     scale   = min(SAIDA_LARGURA / w, SAIDA_ALTURA / h)
     novo_w  = int(w * scale)
@@ -168,22 +149,7 @@ def frame_para_1080p(frame):
     canvas[y_off:y_off+novo_h, x_off:x_off+novo_w] = redim
     return canvas
 
-
-# ──────────────────────────────────────────────────────────────
-# INSPEÇÃO DO CHECKPOINT — fonte de verdade para a arquitetura
-# ──────────────────────────────────────────────────────────────
 def inspecionar_checkpoint(caminho, device):
-    """
-    Lê os tensores salvos e infere os hiperparâmetros da arquitetura
-    sem depender de nenhum arquivo externo.
-
-    Regras de inferência:
-      weight_ih_l0 : shape (4 * hidden_size, input_size)
-      weight_ih_lN : existência indica número de camadas
-      norm.weight  : shape (hidden_size,) — confirma hidden_size
-      fc.weight    : shape (num_classes, hidden_size)
-      fc.bias      : shape (num_classes,) — confirma num_classes
-    """
     ckpt = torch.load(caminho, map_location=device)
 
     w0         = ckpt["lstm.weight_ih_l0"]   # (4*hidden, input)
@@ -191,9 +157,7 @@ def inspecionar_checkpoint(caminho, device):
     hidden_size = w0.shape[0] // 4
     num_layers  = sum(1 for k in ckpt if k.startswith("lstm.weight_ih_l"))
     num_classes = ckpt["fc.bias"].shape[0]
-
-    # dropout não é salvo nos pesos — usa 0 para carregar sem erros;
-    # dropout só afeta o treino, não a inferência (model.eval() desativa)
+  
     dropout = 0.0
 
     return ckpt, {
@@ -204,10 +168,6 @@ def inspecionar_checkpoint(caminho, device):
         "dropout":     dropout,
     }
 
-
-# ──────────────────────────────────────────────────────────────
-# ARQUITETURA LSTM — idêntica ao script 4
-# ──────────────────────────────────────────────────────────────
 class LSTMClassifier(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers,
                  num_classes, dropout):
@@ -217,7 +177,7 @@ class LSTMClassifier(nn.Module):
             hidden_size   = hidden_size,
             num_layers    = num_layers,
             batch_first   = True,
-            dropout       = 0,            # desativado na inferência
+            dropout       = 0,            
             bidirectional = False,
         )
         self.norm    = nn.LayerNorm(hidden_size)
@@ -226,7 +186,6 @@ class LSTMClassifier(nn.Module):
 
     def forward(self, x, lens=None):
         if lens is not None:
-            # enforce_sorted=False — sem necessidade de ordenar o batch
             packed = nn.utils.rnn.pack_padded_sequence(
                 x, lens.cpu(), batch_first=True, enforce_sorted=False)
             _, (h_n, _) = self.lstm(packed)
@@ -236,10 +195,6 @@ class LSTMClassifier(nn.Module):
         last = h_n[-1]
         return self.fc(self.dropout(self.norm(last)))
 
-
-# ──────────────────────────────────────────────────────────────
-# FEATURES — idêntica ao script 4 (ângulos + proporções invariantes)
-# ──────────────────────────────────────────────────────────────
 def _angulo(a, b, c):
     A, B, C = np.array(a[:2]), np.array(b[:2]), np.array(c[:2])
     ba, bc  = A - B, C - B
@@ -252,11 +207,6 @@ def _dist(a, b):
     return float(np.linalg.norm(np.array(a[:2]) - np.array(b[:2])))
 
 def extrair_features(kp, bbox):
-    """
-    Extrai 13 features invariantes à posição e escala:
-      10 ângulos articulares + 3 distâncias relativas à largura dos ombros.
-    O argumento bbox é mantido por compatibilidade mas não é usado.
-    """
     feats = [
         _angulo(kp[5],  kp[7],  kp[9]),   # 1.  Cotovelo Esquerdo
         _angulo(kp[6],  kp[8],  kp[10]),  # 2.  Cotovelo Direito
@@ -279,10 +229,6 @@ def extrair_features(kp, bbox):
     ]
     return np.array(feats, dtype=np.float32)
 
-
-# ──────────────────────────────────────────────────────────────
-# FILAS DESLIZANTES POR CLASSE
-# ──────────────────────────────────────────────────────────────
 class FilasPorClasse:
     """
     Uma deque independente por atividade, com maxlen = janela da classe.
@@ -319,10 +265,6 @@ class FilasPorClasse:
         a_ref = max(self.janela_por_classe, key=self.janela_por_classe.get)
         return len(self.filas[a_ref]), self.janela_por_classe[a_ref]
 
-
-# ──────────────────────────────────────────────────────────────
-# CLASSIFICAÇÃO EM BATCH ÚNICO
-# ──────────────────────────────────────────────────────────────
 def classificar(lstm, le, filas, janela_max, input_size, device, conf_min):
     """
     Para cada classe com fila cheia, monta uma sequência padded e
@@ -335,7 +277,7 @@ def classificar(lstm, le, filas, janela_max, input_size, device, conf_min):
 
     seqs = np.array([
         filas.sequencia_padded(a, janela_max, input_size) for a in prontas
-    ], dtype=np.float32)                                   # (N, janela_max, input_size)
+    ], dtype=np.float32)                                  
 
     lens = torch.tensor(
         [filas.janela_por_classe[a] for a in prontas], dtype=torch.long)
@@ -343,9 +285,8 @@ def classificar(lstm, le, filas, janela_max, input_size, device, conf_min):
     batch  = torch.tensor(seqs).to(device)
     with torch.no_grad():
         logits = lstm(batch, lens)
-        probas = torch.softmax(logits, dim=1).cpu().numpy()  # (N, num_classes)
-
-    # Score de cada classe = probabilidade de ser ela mesma
+        probas = torch.softmax(logits, dim=1).cpu().numpy()  
+      
     scores = {
         a: float(probas[i, le.transform([a])[0]])
         for i, a in enumerate(prontas)
@@ -356,10 +297,6 @@ def classificar(lstm, le, filas, janela_max, input_size, device, conf_min):
 
     return (melhor, melhor_conf) if melhor_conf >= conf_min else (None, 0.0)
 
-
-# ──────────────────────────────────────────────────────────────
-# HARDWARE
-# ──────────────────────────────────────────────────────────────
 def configurar_gpu():
     print("\n🖥️  HARDWARE")
     print("-" * 45)
@@ -374,10 +311,6 @@ def configurar_gpu():
     print("-" * 45 + "\n")
     return torch.device("cpu"), False
 
-
-# ──────────────────────────────────────────────────────────────
-# CARREGAMENTO DOS MODELOS
-# ──────────────────────────────────────────────────────────────
 def carregar_modelos(device, fp16, usar_classificador):
     """
     Retorna todos os artefatos necessários para a inferência.
@@ -397,7 +330,6 @@ def carregar_modelos(device, fp16, usar_classificador):
     janela_max        = 30
     modo_demo         = True
 
-    # ── YOLO-Pose ─────────────────────────────────────────────
     modelo_path = MODELO_BASE
     if usar_classificador and Path(MODELO_POSE).exists():
         modelo_path = MODELO_POSE
@@ -408,7 +340,6 @@ def carregar_modelos(device, fp16, usar_classificador):
     model_pose = YOLO(modelo_path)
     model_pose.to(device)
 
-    # ── LSTM ──────────────────────────────────────────────────
     if not usar_classificador:
         print(f"  ℹ️  Modo demonstração — apenas estimativa de pose.")
         return model_pose, None, None, None, {}, 30, True
@@ -421,7 +352,6 @@ def carregar_modelos(device, fp16, usar_classificador):
         print(f"  ℹ️  Continuando em modo demonstração...")
         return model_pose, None, None, None, {}, 30, True
 
-    # 1. Lê arquitetura diretamente do checkpoint
     print(f"  🔍 Lendo arquitetura do checkpoint...")
     ckpt, arq = inspecionar_checkpoint(LSTM_WEIGHTS, device)
     print(f"  ✅ Arquitetura : input={arq['input_size']}, "
@@ -429,16 +359,13 @@ def carregar_modelos(device, fp16, usar_classificador):
           f"layers={arq['num_layers']}, "
           f"classes={arq['num_classes']}")
 
-    # 2. Instancia o LSTM com os parâmetros reais do checkpoint
     lstm = LSTMClassifier(**arq).to(device)
     lstm.load_state_dict(ckpt)
     lstm.eval()
 
-    # 3. Label encoder e scaler
     le     = joblib.load(LABEL_ENCODER)
     scaler = joblib.load(SCALER)
 
-    # 4. Janelas por classe — config.json (opcional) ou fallback uniforme
     if Path(CONFIG_JSON).exists():
         with open(CONFIG_JSON) as f:
             cfg = json.load(f)
@@ -447,13 +374,11 @@ def carregar_modelos(device, fp16, usar_classificador):
             janela_max        = cfg.get("janela_max", max(janela_por_classe.values()))
             print(f"  ✅ Janelas     : config.json ({len(janela_por_classe)} classes)")
         else:
-            # config.json existe mas é formato antigo (janela_frames única)
             j = cfg.get("janela_frames", 30)
             janela_por_classe = {a: j for a in le.classes_}
             janela_max        = j
             print(f"  ✅ Janelas     : config.json legado → {j} frames para todas")
     else:
-        # Sem config.json — usa janela uniforme de fallback
         janela_max        = 30
         janela_por_classe = {a: janela_max for a in le.classes_}
         print(f"  ⚠️  config.json não encontrado → janela uniforme de {janela_max} frames")
@@ -466,10 +391,6 @@ def carregar_modelos(device, fp16, usar_classificador):
     modo_demo = False
     return model_pose, lstm, le, scaler, janela_por_classe, janela_max, modo_demo
 
-
-# ──────────────────────────────────────────────────────────────
-# BANCO DE DADOS
-# ──────────────────────────────────────────────────────────────
 def conectar_db():
     if not POSTGRES_OK:
         return None
@@ -540,10 +461,6 @@ def salvar_sessao(conn, atividade, inicio, fim, fonte, conf_media):
         conn.rollback()
         print(f"  ⚠️  Erro ao salvar: {e}")
 
-
-# ──────────────────────────────────────────────────────────────
-# TEMPORIZADOR
-# ──────────────────────────────────────────────────────────────
 class Temporizador:
     def __init__(self):
         self.atividade_atual = None
@@ -570,13 +487,6 @@ class Temporizador:
     def finalizar(self, conn, fonte):
         self._salvar(datetime.now(), conn, fonte)
 
-
-# ──────────────────────────────────────────────────────────────
-# OVERLAY
-# ──────────────────────────────────────────────────────────────
-
-# Carrega uma fonte TTF com suporte a UTF-8 (ç, ã, etc.)
-# Tenta fontes comuns do sistema; usa a fonte padrão do PIL como fallback.
 def _carregar_fonte(tamanho):
     candidatas = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -594,7 +504,6 @@ def _carregar_fonte(tamanho):
                 pass
     return ImageFont.load_default()
 
-# Pré-carrega as fontes uma única vez
 _FONTE_GRANDE  = _carregar_fonte(26)
 _FONTE_MEDIA   = _carregar_fonte(19)
 _FONTE_PEQUENA = _carregar_fonte(13)
@@ -604,7 +513,6 @@ def _puttext_pil(frame, texto, posicao, fonte, cor_rgb):
     """Renderiza `texto` (UTF-8) no `frame` OpenCV usando PIL."""
     img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw    = ImageDraw.Draw(img_pil)
-    # cor PIL usa RGB; OpenCV usa BGR — converter
     draw.text(posicao, texto, font=fonte, fill=cor_rgb)
     return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
@@ -618,7 +526,6 @@ def desenhar_overlay(frame, atividade, confianca, tempo_seg,
                      fps, modo_demo, gpu_info, prog_atual, prog_max):
     h, w = frame.shape[:2]
 
-    # ── Painel branco semi-transparente na parte inferior ──────
     ALTURA_PAINEL = 130
     y0 = h - ALTURA_PAINEL
 
@@ -626,7 +533,6 @@ def desenhar_overlay(frame, atividade, confianca, tempo_seg,
     cv2.rectangle(ov, (0, y0), (w, h), (255, 255, 255), -1)
     cv2.addWeighted(ov, 0.82, frame, 0.18, 0, frame)
 
-    # Linha separadora sutil no topo do painel
     cv2.line(frame, (0, y0), (w, y0), (200, 200, 200), 1)
 
     cor_bgr = CORES.get(atividade, (100, 100, 100)) if atividade else (100, 100, 100)
@@ -637,22 +543,18 @@ def desenhar_overlay(frame, atividade, confianca, tempo_seg,
     if atividade:
         label = LABELS_PT.get(atividade, atividade)
 
-        # Linha 1 — Atividade (fonte grande, cor da classe)
         frame = _puttext_pil(frame, f"Atividade : {label}",
                              (12, y0 + 8), _FONTE_GRANDE, cor_rgb)
 
-        # Linha 2 — Confiança + FPS (fonte média, cinza escuro)
         frame = _puttext_pil(frame, f"Confiança : {confianca:.0%}   |   FPS: {fps:.1f}",
                              (12, y0 + 40), _FONTE_MEDIA, cinza_escuro)
 
-        # Linha 3 — Duração (fonte média, cor da classe)
         mins  = int(tempo_seg) // 60
         segs  = int(tempo_seg) % 60
         cents = int((tempo_seg % 1) * 10)
         frame = _puttext_pil(frame, f"Duração   : {mins:02d}:{segs:02d}.{cents}",
                              (12, y0 + 64), _FONTE_MEDIA, cor_rgb)
 
-        # Barra de confiança (canto direito do painel)
         bw, bh = 200, 14
         bx = w - bw - 12
         by = y0 + 20
@@ -662,7 +564,6 @@ def desenhar_overlay(frame, atividade, confianca, tempo_seg,
                              (bx, by - 16), _FONTE_PEQUENA, cinza_medio)
 
     else:
-        # Estado inicial — coletando sequência
         pct = prog_atual / max(prog_max, 1)
         frame = _puttext_pil(frame,
                              f"Coletando sequência: {prog_atual}/{prog_max} frames...",
@@ -670,17 +571,12 @@ def desenhar_overlay(frame, atividade, confianca, tempo_seg,
         cv2.rectangle(frame, (12, y0 + 50), (412, y0 + 64), (210, 210, 210), -1)
         cv2.rectangle(frame, (12, y0 + 50), (12+int(400*pct), y0 + 64), (100, 180, 100), -1)
 
-    # Rodapé — GPU / modo / FPS (linha inferior do painel)
     modo_txt = "LSTM ativo" if not modo_demo else "DEMO"
     frame = _puttext_pil(frame, f"{gpu_info}   |   {modo_txt}   |   FPS: {fps:.1f}",
                          (12, y0 + 108), _FONTE_PEQUENA, cinza_medio)
 
     return frame
 
-
-# ──────────────────────────────────────────────────────────────
-# LOOP PRINCIPAL
-# ──────────────────────────────────────────────────────────────
 def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
             camera_idx=0):
     print("=" * 55)
@@ -698,19 +594,12 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
     print("\n🗄️  BANCO DE DADOS...")
     print("-" * 45)
     conn = conectar_db()
-
-    # ── Resolução da fonte ────────────────────────────────────
-    # --source tem prioridade (arquivo de vídeo ou índice explícito)
-    # --camera é o atalho específico para webcam USB
+              
     if str(source) != "0":
-        # Arquivo de vídeo ou índice passado via --source
         src = int(source) if str(source).isdigit() else source
     else:
-        # Webcam: usa o índice definido por --camera (padrão 0)
         src = camera_idx
-
-    # No Windows usa DirectShow para melhor compatibilidade com webcams USB.
-    # No Linux usa o backend padrão (V4L2).
+      
     import platform
     if isinstance(src, int):
         if platform.system() == "Windows":
@@ -718,7 +607,7 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
         else:
             cap = cv2.VideoCapture(src)
     else:
-        cap = cv2.VideoCapture(src)   # arquivo de vídeo — sem backend específico
+        cap = cv2.VideoCapture(src)
 
     if not cap.isOpened():
         print(f"\n❌ Não foi possível abrir a fonte: {src}")
@@ -726,11 +615,10 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
             print(f"   Dica: execute com --listar-cameras para ver os índices disponíveis.")
         return
 
-    # Configura resolução preferida para webcams (ignorado para arquivos)
     if isinstance(src, int):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)   # ativa autofoco se suportado
+        cap.set(cv2.CAP_PROP_AUTOFOCUS, 1) 
 
     if src == 0:
         fonte_nome = "webcam_0"
@@ -742,7 +630,6 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
     altura     = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"\n  📹 Fonte  : {fonte_nome}  ({largura}×{altura})")
 
-    # ── VideoWriter (modo --salvar) ────────────────────────────
     writer = None
     if salvar:
         if caminho_saida is None:
@@ -762,14 +649,13 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
     else:
         print("\n  Pressione  Q  para encerrar\n")
 
-    # input_size inferido do checkpoint — weight_ih_l0 tem shape (4*hidden, input_size)
     input_size = next(lstm.lstm.parameters()).shape[1] if lstm else 13
 
     filas          = FilasPorClasse(janela_por_classe) if not modo_demo else None
     buf_pred       = deque(maxlen=BUFFER_PRED)
     buf_conf       = deque(maxlen=BUFFER_PRED)
     temporizador   = Temporizador()
-    atividade_suav = None   # última predição válida — persiste entre frames
+    atividade_suav = None   
     confianca_suav = 0.0
 
     t0       = time.time()
@@ -788,10 +674,10 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
 
         results   = model_pose(frame, verbose=False, conf=CONF_POSE, half=fp16)
         annotated = results[0].plot(
-            kpt_radius  = 6,      # keypoints maiores e mais visíveis
-            line_width  = 3,      # linhas do esqueleto mais espessas
-            boxes       = False,  # remove o bounding box — menos poluição visual
-            kpt_line    = True,   # liga os keypoints com linhas (esqueleto)
+            kpt_radius  = 6,
+            line_width  = 3,
+            boxes       = False,
+            kpt_line    = True,
         )
 
         atividade_frame = None
@@ -827,15 +713,12 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
             buf_pred.append(atividade_frame)
             buf_conf.append(confianca_frame)
 
-        # Mantém a última predição válida mesmo em frames sem detecção.
-        # O overlay só some se o buffer inteiro estiver vazio (início da sessão).
         if buf_pred:
             votos = Counter(buf_pred)
             melhor, contagem = votos.most_common(1)[0]
             if contagem / len(buf_pred) >= 0.70:
                 atividade_suav = melhor
                 confianca_suav = float(np.mean(buf_conf))
-        # se não atingir 70%, mantém a predição anterior
 
         tempo_seg = 0.0
         if atividade_suav:
@@ -848,13 +731,9 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
             annotated, atividade_suav, confianca_suav,
             tempo_seg, fps, modo_demo, gpu_info, prog_atual, prog_max)
 
-        # ── Saída: gravar ou exibir ────────────────────────────
         if salvar:
-            # Upscale para 1080p com letterbox e grava no ficheiro
             writer.write(frame_para_1080p(annotated))
         else:
-            # Redimensiona para caber no ecrã ao usar ficheiro de vídeo.
-            # Webcams (qualquer índice) usam a resolução nativa sem redimensionamento.
             if not isinstance(src, int):
                 h_ann, w_ann = annotated.shape[:2]
                 max_w, max_h = 1280, 720
@@ -884,10 +763,6 @@ def inferir(source, usar_classificador, salvar=False, caminho_saida=None,
     print(f"\n  ✅ Frames processados : {n_frames}")
     print(f"  ✅ FPS médio          : {n_frames / max(time.time()-t0, 1e-6):.1f}")
 
-
-# ──────────────────────────────────────────────────────────────
-# EXECUÇÃO
-# ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -923,12 +798,10 @@ if __name__ == "__main__":
     if args.listar_cameras:
         listar_cameras()
     else:
-        # Se --source foi passado, usa-o (arquivo ou índice explícito).
-        # Caso contrário, usa o índice de --camera (webcam).
         if args.source is not None:
             source = int(args.source) if args.source.isdigit() else args.source
         else:
-            source = 0   # sinaliza "usar camera_idx"
+            source = 0
 
         inferir(
             source             = source,
