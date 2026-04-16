@@ -10,10 +10,6 @@ import torch
 from ultralytics import YOLO
 from pathlib import Path
 
-
-# ──────────────────────────────────────────────
-# CONFIGURAÇÕES
-# ──────────────────────────────────────────────
 DATASET_YAML = "dataset_yolo/data.yaml"
 MODELO_BASE  = "yolov8m-pose.pt"
 EPOCHS       = 100
@@ -21,10 +17,6 @@ IMGSZ        = 640
 PROJETO      = "treino_pose"
 NOME         = "v1"
 
-
-# ──────────────────────────────────────────────
-# SELEÇÃO DE DEVICE E BATCH SIZE
-# ──────────────────────────────────────────────
 def configurar_hardware():
     """
     Detecta a GPU e sugere batch size baseado na VRAM.
@@ -68,10 +60,6 @@ def configurar_hardware():
 
     return 0, batch, usar_fp16   # device=0 → primeira GPU
 
-
-# ──────────────────────────────────────────────
-# TREINO
-# ──────────────────────────────────────────────
 def treinar():
     print("=" * 60)
     print("  TREINO YOLO-POSE")
@@ -93,12 +81,8 @@ def treinar():
         imgsz      = IMGSZ,
         batch      = batch,
         device     = device,
-        half       = fp16,        # FP16 na GPU → treino mais rápido
-
-        # Early stopping
+        half       = fp16,        
         patience   = 20,
-
-        # Augmentação
         hsv_h      = 0.015,
         hsv_s      = 0.7,
         hsv_v      = 0.4,
@@ -108,24 +92,16 @@ def treinar():
         fliplr     = 0.5,
         flipud     = 0.0,
         mosaic     = 0.5,
-
-        # Otimizador
         optimizer  = "AdamW",
         lr0        = 0.001,
         weight_decay = 0.0005,
-
-        # Salvamento e logs
         save         = True,
         save_period  = 10,
         project      = PROJETO,
         name         = NOME,
         plots        = True,
         verbose      = True,
-
-        # Cache de imagens na RAM (acelera treino se tiver RAM suficiente)
         cache        = True,
-
-        # Workers para carregamento de dados (Windows: manter em 4 ou menos)
         workers      = 4,
     )
 
