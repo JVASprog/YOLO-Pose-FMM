@@ -22,10 +22,6 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix
 from ultralytics import YOLO
 
-
-# ──────────────────────────────────────────────────────────────
-# CONFIGURAÇÕES GERAIS E HIPERPARÂMETROS
-# ──────────────────────────────────────────────────────────────
 MODELO_POSE  = "runs/pose/treino_pose/v1/weights/best.pt"
 RAIZ_FRAMES  = "dataset_frames"
 SAIDA        = "modelos_classificador"
@@ -58,9 +54,8 @@ PASSO_POR_CLASSE = {
 
 JANELA_MAX = max(JANELA_POR_CLASSE.values())
 
-# ── Hiperparâmetros do LSTM Ajustados para Features Simples ────
-INPUT_SIZE    = 13       # 🟢 Reduzido drasticamente (10 ângulos + 3 distâncias)
-HIDDEN_SIZE   = 32       # 🟢 Rede mais leve para lidar com features puras
+INPUT_SIZE    = 13       
+HIDDEN_SIZE   = 32       
 NUM_LAYERS    = 1
 DROPOUT       = 0.5
 NUM_CLASSES   = len(ATIVIDADES)
@@ -71,10 +66,6 @@ LEARNING_RATE = 0.001
 WEIGHT_DECAY  = 1e-3
 PATIENCE      = 25
 
-
-# ──────────────────────────────────────────────────────────────
-# HARDWARE
-# ──────────────────────────────────────────────────────────────
 def selecionar_device():
     print("\n🖥️  HARDWARE")
     print("-" * 45)
@@ -90,10 +81,6 @@ def selecionar_device():
     print("-" * 45 + "\n")
     return device
 
-
-# ──────────────────────────────────────────────────────────────
-# FEATURES (ÂNGULOS E PROPORÇÕES INVARIANTES)
-# ──────────────────────────────────────────────────────────────
 def _angulo(a, b, c):
     A, B, C = np.array(a[:2]), np.array(b[:2]), np.array(c[:2])
     ba, bc  = A - B, C - B
@@ -106,8 +93,6 @@ def _dist(a, b):
     return float(np.linalg.norm(np.array(a[:2]) - np.array(b[:2])))
 
 def extrair_features(kp, bbox):
-    # A Bounding Box já não é necessária para normalizar, mas mantemos o 
-    # argumento para compatibilidade com a chamada da função
     feats = [
         _angulo(kp[5], kp[7],  kp[9]),   # 1. Cotovelo Esquerdo
         _angulo(kp[6], kp[8],  kp[10]),  # 2. Cotovelo Direito
@@ -121,8 +106,6 @@ def extrair_features(kp, bbox):
         _angulo(kp[12], kp[14], kp[16]), # 10. Joelho Direito
     ]
 
-    # Distâncias relativas e invariantes à escala da câmara
-    # Usamos a largura dos ombros como a nossa "régua" base
     ombros_dist = _dist(kp[5], kp[6])
     if ombros_dist < 1e-5:
         ombros_dist = 1.0 # Previne divisão por zero se a deteção falhar
@@ -135,10 +118,6 @@ def extrair_features(kp, bbox):
 
     return np.array(feats, dtype=np.float32)
 
-
-# ──────────────────────────────────────────────────────────────
-# COLETA POR VÍDEO
-# ──────────────────────────────────────────────────────────────
 def coletar_por_video(model_pose, split, device):
     videos_data = []
     fp16 = device.type == "cuda"
@@ -184,10 +163,6 @@ def coletar_por_video(model_pose, split, device):
                     })
     return videos_data
 
-
-# ──────────────────────────────────────────────────────────────
-# SLIDING WINDOW (COM PASSOS AJUSTADOS)
-# ──────────────────────────────────────────────────────────────
 def videos_para_sequencias(videos_data, le):
     X_list, y_list, lens, angs = [], [], [], []
 
@@ -210,10 +185,6 @@ def videos_para_sequencias(videos_data, le):
             np.array(lens,   dtype=np.int64),
             np.array(angs))
 
-
-# ──────────────────────────────────────────────────────────────
-# DATASET COM POST-PADDING E DATA AUGMENTATION FORTE
-# ──────────────────────────────────────────────────────────────
 class SequenceDataset(Dataset):
     def __init__(self, X_list, y, lens, augment=False):
         self.X_list  = X_list
@@ -227,8 +198,6 @@ class SequenceDataset(Dataset):
     def __getitem__(self, idx):
         seq = self.X_list[idx].copy() 
         
-        # Como os dados foram standardizados (média 0, std 1), este ruído 
-        # cria variações articulares realistas no treino
         if self.augment:
             ruido = np.random.normal(0, 0.15, seq.shape).astype(np.float32)
             seq = seq + ruido
@@ -248,13 +217,8 @@ def collate_fn(batch):
     seqs   = torch.stack(seqs)
     labels = torch.stack(labels)
     lens   = torch.stack(lens)
-    # Removida a lógica de argsort para manter a ordem original exata!
     return seqs, labels, lens
 
-
-# ──────────────────────────────────────────────────────────────
-# ARQUITETURA LSTM
-# ──────────────────────────────────────────────────────────────
 class LSTMClassifier(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers,
                  num_classes, dropout):
@@ -273,7 +237,6 @@ class LSTMClassifier(nn.Module):
 
     def forward(self, x, lens=None):
         if lens is not None:
-            # MUDANÇA AQUI: enforce_sorted=False
             packed = nn.utils.rnn.pack_padded_sequence(
                 x, lens.cpu(), batch_first=True, enforce_sorted=False)
             _, (h_n, _) = self.lstm(packed)
@@ -284,10 +247,6 @@ class LSTMClassifier(nn.Module):
 
         return self.fc(self.dropout(self.norm(last)))
 
-
-# ──────────────────────────────────────────────────────────────
-# TREINO
-# ──────────────────────────────────────────────────────────────
 def treinar_lstm(X_tr, y_tr, l_tr, X_v, y_v, l_v, device):
     contagem = np.bincount(y_tr, minlength=NUM_CLASSES)
     pesos    = 1.0 / (np.sqrt(contagem) + 1e-6)
@@ -380,10 +339,6 @@ def _plotar_historico(hist):
     plt.savefig(f"{SAIDA}/historico_treino.png", dpi=120)
     plt.close()
 
-
-# ──────────────────────────────────────────────────────────────
-# AVALIAÇÃO
-# ──────────────────────────────────────────────────────────────
 def avaliar_lstm(model, le, X, y_enc, lens, angulos, titulo, pasta_saida, device):
     Path(pasta_saida).mkdir(parents=True, exist_ok=True)
     model.eval()
@@ -420,10 +375,6 @@ def _confusion(y_true, y_pred, classes, titulo, caminho):
     plt.savefig(caminho, dpi=120)
     plt.close()
 
-
-# ──────────────────────────────────────────────────────────────
-# PIPELINE
-# ──────────────────────────────────────────────────────────────
 def pipeline():
     device     = selecionar_device()
     model_pose = YOLO(MODELO_POSE)
@@ -475,15 +426,13 @@ def pipeline():
         "num_layers":    NUM_LAYERS,
         "dropout":       DROPOUT,
         "num_classes":   NUM_CLASSES,
-        # Classes e janelas
         "atividades":        list(le.classes_),
         "janela_por_classe": JANELA_POR_CLASSE,
         "janela_max":        JANELA_MAX,
         "passo_por_classe":  PASSO_POR_CLASSE,
-        # Comportamento do dataset e LSTM
-        "feature_mode":   "geometrico",  # "geometrico" (13) ou "completo" (60)
-        "padding_mode":   "post",        # "post" ou "pre"
-        "enforce_sorted": False,         # enforce_sorted do pack_padded_sequence
+        "feature_mode":   "geometrico",  
+        "padding_mode":   "post",        
+        "enforce_sorted": False,         
     }
     with open(f"{SAIDA}/config.json", "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
