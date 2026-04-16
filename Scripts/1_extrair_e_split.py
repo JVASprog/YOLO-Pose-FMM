@@ -32,10 +32,6 @@ import random
 import torch
 from pathlib import Path
 
-
-# ──────────────────────────────────────────────
-# CONFIGURAÇÕES
-# ──────────────────────────────────────────────
 RAIZ_VIDEOS = "Angulo"
 RAIZ_FRAMES = "dataset_frames"
 FPS_ALVO    = 5
