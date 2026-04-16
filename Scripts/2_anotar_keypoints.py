@@ -18,10 +18,6 @@ import yaml
 from pathlib import Path
 from ultralytics import YOLO
 
-
-# ──────────────────────────────────────────────
-# CONFIGURAÇÕES
-# ──────────────────────────────────────────────
 RAIZ_FRAMES = "dataset_frames"
 RAIZ_YOLO   = "dataset_yolo"
 MODELO_BASE = "yolov8m-pose.pt"
@@ -37,10 +33,6 @@ ATIVIDADES = [
 
 ANGULOS = ["superior", "perspectiva"]
 
-
-# ──────────────────────────────────────────────
-# SELEÇÃO DE DISPOSITIVO
-# ──────────────────────────────────────────────
 def selecionar_device():
     if torch.cuda.is_available():
         nome = torch.cuda.get_device_name(0)
@@ -51,10 +43,6 @@ def selecionar_device():
         print("  ⚠️  GPU não detectada — usando CPU (mais lento).")
         return "cpu"
 
-
-# ──────────────────────────────────────────────
-# CONVERSÕES
-# ──────────────────────────────────────────────
 def bbox_yolo(x1, y1, x2, y2, W, H):
     xc = ((x1 + x2) / 2) / W
     yc = ((y1 + y2) / 2) / H
@@ -94,10 +82,6 @@ def anotar_frame(model, img_path, class_id):
 
     return linhas or None
 
-
-# ──────────────────────────────────────────────
-# PIPELINE
-# ──────────────────────────────────────────────
 def anotar_dataset():
     print("=" * 60)
     print("  ANOTAÇÃO AUTOMÁTICA COM YOLO-POSE (GPU)")
