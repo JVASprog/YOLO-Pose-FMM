@@ -56,10 +56,6 @@ ATIVIDADES = [
     "inspecao_visual",
 ]
 
-
-# ──────────────────────────────────────────────
-# VERIFICAÇÃO DE GPU (informativo)
-# ──────────────────────────────────────────────
 def verificar_gpu():
     print("\n🖥️  VERIFICAÇÃO DE HARDWARE")
     print("-" * 40)
@@ -74,10 +70,6 @@ def verificar_gpu():
         print("     Execute: python 0_diagnostico.py para instruções.")
     print("-" * 40 + "\n")
 
-
-# ──────────────────────────────────────────────
-# SPLIT DINÂMICO POR VÍDEO
-# ──────────────────────────────────────────────
 def calcular_split(n: int) -> tuple[int, int, int]:
     """
     Recebe o total de vídeos e retorna (n_train, n_val, n_test).
@@ -156,10 +148,6 @@ def montar_split(raiz_videos, seed=42):
 
     return split_map
 
-
-# ──────────────────────────────────────────────
-# EXTRAÇÃO DE FRAMES
-# ──────────────────────────────────────────────
 def extrair_frames(video_path, saida_dir, fps_alvo=5):
     saida_dir = Path(saida_dir)
     saida_dir.mkdir(parents=True, exist_ok=True)
@@ -187,9 +175,6 @@ def extrair_frames(video_path, saida_dir, fps_alvo=5):
     return salvo
 
 
-# ──────────────────────────────────────────────
-# PIPELINE
-# ──────────────────────────────────────────────
 def pipeline():
     print("=" * 60)
     print("  EXTRAÇÃO DE FRAMES E SPLIT DO DATASET")
